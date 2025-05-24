@@ -18,13 +18,14 @@ export default {
       const url = new URL(request.url);
       const originalPath = url.pathname;
       
-      // 处理根路径访问 - 返回状态信息
+      // 处理根路径访问
       if (originalPath === '/' || originalPath === '') {
         return new Response(JSON.stringify({
           status: 'Anthropic API Proxy is running',
           timestamp: new Date().toISOString(),
           endpoints: [
             'POST /v1/chat/completions - OpenAI compatible endpoint',
+            'POST /v1/messages - Anthropic native endpoint',
             'GET /v1/models - List available models'
           ]
         }), {
@@ -36,9 +37,43 @@ export default {
         });
       }
       
+      // 处理 Anthropic 原生 /v1/messages 端点
+      if (originalPath.includes('/v1/messages')) {
+        if (request.method !== 'POST') {
+          return new Response(JSON.stringify({
+            error: { message: 'Method not allowed. Use POST.' }
+          }), {
+            status: 405,
+            headers: { 'Content-Type': 'application/json', ...corsHeaders }
+          });
+        }
+        
+        // 直接转发到 Anthropic API
+        const newUrl = new URL(request.url);
+        newUrl.host = 'api.anthropic.com';
+        
+        // 复制所有请求头
+        const headers = new Headers(request.headers);
+        
+        const response = await fetch(newUrl, {
+          method: request.method,
+          headers: headers,
+          body: request.body
+        });
+        
+        const responseData = await response.text();
+        
+        return new Response(responseData, {
+          status: response.status,
+          headers: {
+            'Content-Type': response.headers.get('Content-Type') || 'application/json',
+            ...corsHeaders
+          }
+        });
+      }
+      
       // 处理 models 端点
       if (originalPath.includes('/models')) {
-        // 返回模拟的模型列表
         const modelsResponse = {
           object: "list",
           data: [
@@ -72,7 +107,6 @@ export default {
       // 处理 OpenAI 兼容的 chat completions 请求
       if (originalPath.includes('/chat/completions')) {
         
-        // 验证请求方法
         if (request.method !== 'POST') {
           return new Response(JSON.stringify({
             error: { message: 'Method not allowed. Use POST.' }
@@ -82,7 +116,6 @@ export default {
           });
         }
         
-        // 读取和验证请求体
         let requestBody;
         try {
           requestBody = await request.json();
@@ -95,26 +128,6 @@ export default {
           });
         }
         
-        // 验证必需的字段
-        if (!requestBody.model) {
-          return new Response(JSON.stringify({
-            error: { message: 'Missing required field: model' }
-          }), {
-            status: 400,
-            headers: { 'Content-Type': 'application/json', ...corsHeaders }
-          });
-        }
-        
-        if (!requestBody.messages || !Array.isArray(requestBody.messages)) {
-          return new Response(JSON.stringify({
-            error: { message: 'Missing or invalid messages field' }
-          }), {
-            status: 400,
-            headers: { 'Content-Type': 'application/json', ...corsHeaders }
-          });
-        }
-        
-        // 验证认证
         const authHeader = request.headers.get('Authorization');
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
           return new Response(JSON.stringify({
@@ -134,25 +147,19 @@ export default {
           messages: requestBody.messages
         };
         
-        // 添加可选参数
         if (requestBody.temperature !== undefined) {
           anthropicBody.temperature = requestBody.temperature;
         }
         if (requestBody.top_p !== undefined) {
           anthropicBody.top_p = requestBody.top_p;
         }
-        if (requestBody.stop !== undefined) {
-          anthropicBody.stop_sequences = Array.isArray(requestBody.stop) ? requestBody.stop : [requestBody.stop];
-        }
         
-        // 设置 Anthropic API 请求头
         const anthropicHeaders = {
           'Content-Type': 'application/json',
           'x-api-key': apiKey,
           'anthropic-version': '2023-06-01'
         };
         
-        // 发送请求到 Anthropic API
         const anthropicUrl = 'https://api.anthropic.com/v1/messages';
         
         try {
@@ -164,7 +171,6 @@ export default {
           
           const anthropicResponse = await response.json();
           
-          // 转换响应格式
           if (response.ok && anthropicResponse.content) {
             const openaiResponse = {
               id: `chatcmpl-${Date.now()}`,
@@ -191,7 +197,6 @@ export default {
               headers: { 'Content-Type': 'application/json', ...corsHeaders }
             });
           } else {
-            // 返回 Anthropic 的错误响应
             return new Response(JSON.stringify(anthropicResponse), {
               status: response.status,
               headers: { 'Content-Type': 'application/json', ...corsHeaders }
@@ -211,12 +216,14 @@ export default {
         }
       }
       
-      // 未知路径
-      return new Response(JSON.stringify({
-        error: { message: `Unknown endpoint: ${originalPath}` }
-      }), {
-        status: 404,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
+      // 其他请求直接转发到 Anthropic
+      const newUrl = new URL(request.url);
+      newUrl.host = 'api.anthropic.com';
+      
+      return fetch(newUrl, {
+        method: request.method,
+        headers: request.headers,
+        body: request.body
       });
       
     } catch (error) {
