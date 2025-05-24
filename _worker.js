@@ -24,7 +24,8 @@ export default {
           status: 'Anthropic API Proxy is running',
           timestamp: new Date().toISOString(),
           endpoints: [
-            'POST /v1/chat/completions - OpenAI compatible endpoint'
+            'POST /v1/chat/completions - OpenAI compatible endpoint',
+            'GET /v1/models - List available models'
           ]
         }), {
           status: 200,
@@ -32,6 +33,39 @@ export default {
             'Content-Type': 'application/json',
             ...corsHeaders
           }
+        });
+      }
+      
+      // 处理 models 端点
+      if (originalPath.includes('/models')) {
+        // 返回模拟的模型列表
+        const modelsResponse = {
+          object: "list",
+          data: [
+            {
+              id: "claude-3-sonnet-20240229",
+              object: "model",
+              created: 1677610602,
+              owned_by: "anthropic"
+            },
+            {
+              id: "claude-3-haiku-20240307",
+              object: "model", 
+              created: 1677610602,
+              owned_by: "anthropic"
+            },
+            {
+              id: "claude-3-opus-20240229",
+              object: "model",
+              created: 1677610602,
+              owned_by: "anthropic"
+            }
+          ]
+        };
+        
+        return new Response(JSON.stringify(modelsResponse), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders }
         });
       }
       
